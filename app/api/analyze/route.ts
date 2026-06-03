@@ -64,7 +64,15 @@ export async function POST(req: NextRequest) {
     }
 
     const doc = SAMPLE_DOCUMENTS.find((d) => d.id === documentId)!;
-    const client = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+    const apiKey = process.env.GROQ_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "GROQ_API_KEY not set on server" }, { status: 500 });
+    }
+    // Log first/last 4 chars so we can verify it's the right key without exposing it
+    console.log(`[analyze] key=${apiKey.slice(0, 4)}...${apiKey.slice(-4)} len=${apiKey.length}`);
+
+    const client = new Groq({ apiKey });
 
     const groqStream = await client.chat.completions.create({
       model: "llama-3.3-70b-versatile",
