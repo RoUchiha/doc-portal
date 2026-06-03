@@ -44,19 +44,13 @@ export default function AiAnalysis({ documentId, title, content, onAnalyzed }: P
         signal: abortRef.current.signal,
       });
 
+      const data = await res.json().catch(() => ({})) as Record<string, unknown>;
+
       if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(text || `Request failed (${res.status})`);
+        throw new Error((data.error as string) || `Request failed (${res.status})`);
       }
 
-      const reader = res.body!.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        setAnalysis((prev) => prev + decoder.decode(value, { stream: true }));
-      }
+      setAnalysis((data.text as string) ?? "");
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== "AbortError") {
         setError(err.message || "Analysis failed. Please try again.");

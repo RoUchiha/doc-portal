@@ -2,13 +2,12 @@ import Groq from "groq-sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { SAMPLE_DOCUMENTS } from "@/lib/documents";
 
-// Edge runtime has native streaming support on Vercel
-export const runtime = "edge";
+// Node.js runtime — no Edge header restrictions, reliable on Vercel
+export const runtime = "nodejs";
 
 const VALID_DOC_IDS = new Set(SAMPLE_DOCUMENTS.map((d) => d.id));
 const VALID_TITLES = new Set(SAMPLE_DOCUMENTS.map((d) => d.title));
 
-// Edge runtime: use a simple in-memory map (resets per cold start — acceptable for demo)
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 
 function isRateLimited(ip: string): boolean {
@@ -67,17 +66,17 @@ export async function POST(req: NextRequest) {
 
     const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "GROQ_API_KEY not set on server" }, { status: 500 });
+      console.error("[analyze] GROQ_API_KEY is not set");
+      return NextResponse.json({ error: "AI service not configured" }, { status: 500 });
     }
-    // Log first/last 4 chars so we can verify it's the right key without exposing it
-    console.log(`[analyze] key=${apiKey.slice(0, 4)}...${apiKey.slice(-4)} len=${apiKey.length}`);
 
     const client = new Groq({ apiKey });
 
-    const groqStream = await client.chat.completions.create({
+    // Non-streaming — most reliable on Vercel serverless
+    const response = await client.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       max_tokens: 1024,
-      stream: true,
+      stream: false,
       messages: [
         {
           role: "system",
@@ -99,29 +98,11 @@ ${doc.content}`,
       ],
     });
 
-    const encoder = new TextEncoder();
-    const readable = new ReadableStream({
-      async start(controller) {
-        try {
-          for await (const chunk of groqStream) {
-            const text = chunk.choices[0]?.delta?.content ?? "";
-            if (text) controller.enqueue(encoder.encode(text));
-          }
-        } catch (err) {
-          console.error("[analyze] stream error:", err);
-        } finally {
-          controller.close();
-        }
-      },
-    });
-
-    return new Response(readable, {
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
-    });
+    const text = response.choices[0]?.message?.content ?? "";
+    return NextResponse.json({ text });
   } catch (err) {
-    // Surface the real error so we can debug
     const message = err instanceof Error ? err.message : String(err);
-    console.error("[analyze] fatal:", message);
+    console.error("[analyze] error:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
