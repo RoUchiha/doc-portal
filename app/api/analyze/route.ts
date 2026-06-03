@@ -92,25 +92,26 @@ ${doc.content}`,
   });
 
   const encoder = new TextEncoder();
-  const readable = new ReadableStream({
-    async start(controller) {
-      try {
-        for await (const chunk of stream) {
-          const text = chunk.choices[0]?.delta?.content ?? "";
-          if (text) controller.enqueue(encoder.encode(text));
-        }
-        controller.close();
-      } catch (err) {
-        console.error("[analyze] stream error:", err);
-        controller.close();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+
+  // Pipe Groq stream into TransformStream without blocking the response
+  (async () => {
+    try {
+      for await (const chunk of stream) {
+        const text = chunk.choices[0]?.delta?.content ?? "";
+        if (text) await writer.write(encoder.encode(text));
       }
-    },
-  });
+    } catch (err) {
+      console.error("[analyze] stream error:", err);
+    } finally {
+      await writer.close();
+    }
+  })();
 
   return new NextResponse(readable, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
-      "Transfer-Encoding": "chunked",
     },
   });
 }
